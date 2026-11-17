@@ -13,8 +13,8 @@ locally before any AWS account or deployment is configured.
 
 ## Quick start on Windows (no Docker or AWS)
 
-Install **Git** and **Python 3.11 or 3.12** first. Then run these commands in
-PowerShell to clone the project and launch the dashboard:
+Install **Git** and **Python 3.11, 3.12, 3.13, or 3.14** first. Then run these
+commands in PowerShell to clone the project and launch the dashboard:
 
 ```powershell
 git clone https://github.com/Ayushman125/crime-trends-dashboard.git
@@ -22,18 +22,21 @@ cd crime-trends-dashboard
 powershell -NoProfile -ExecutionPolicy Bypass -File .\run-local.ps1
 ```
 
-The script creates a project-local virtual environment, installs the
-requirements, and starts Streamlit. Open **http://localhost:8501**. Stop the
-dashboard with **Ctrl+C** in that PowerShell window. No `.env` or database
-setup is needed for this local preview; it fetches data from the public
-Cambridge API. An internet connection is required.
+The script automatically selects an installed supported Python version (also
+checking the Windows `py -3` launcher), creates a project-local virtual
+environment, installs the requirements, and starts Streamlit. Open
+**http://localhost:8501**. Stop the dashboard with **Ctrl+C** in that
+PowerShell window. No `.env` or database setup is needed for this local
+preview; it fetches data from the public Cambridge API. An internet connection
+is required. Python versions older than 3.11 are not supported by this project.
 
-On macOS/Linux, install Git and Python 3.11 or 3.12, then run:
+On macOS/Linux, install Git and one of the supported Python versions, then run
+`python3.11` (or its matching versioned command):
 
 ```bash
 git clone https://github.com/Ayushman125/crime-trends-dashboard.git
 cd crime-trends-dashboard
-python3 -m venv .venv
+python3.11 -m venv .venv
 . .venv/bin/activate
 python -m pip install -r requirements.txt
 python -m streamlit run dashboard.py
@@ -139,7 +142,8 @@ $env:PYTHONPATH = "src"
 
 The tests cover API record normalization, required-field validation,
 deduplication, timestamp conversion, description exclusion, and the AWS S3
-payload. The AWS transform was also tested against the live public API.
+payload. The AWS transform was also tested against the live public API. GitHub
+Actions runs the unit tests on Python 3.11 through 3.14.
 
 ## AWS: host the Docker Compose stack on EC2
 

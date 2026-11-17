@@ -3,34 +3,52 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ProjectRoot
 
-$PythonLauncher = Get-Command py -ErrorAction SilentlyContinue
 $PythonCommand = $null
 $PythonArguments = @()
+$SupportedVersion = $null
+$Candidates = @()
 
+foreach ($Name in @("python", "python3")) {
+    $Command = Get-Command $Name -ErrorAction SilentlyContinue
+    if ($Command) {
+        $Candidates += @{ Command = $Command; Arguments = @() }
+    }
+}
+
+$PythonLauncher = Get-Command py -ErrorAction SilentlyContinue
 if ($PythonLauncher) {
-    foreach ($Version in @("-3.12", "-3.11")) {
-        & $PythonLauncher.Source $Version --version *> $null
-        if ($LASTEXITCODE -eq 0) {
-            $PythonCommand = $PythonLauncher
-            $PythonArguments = @($Version)
-            break
-        }
+    $Candidates += @{ Command = $PythonLauncher; Arguments = @("-3") }
+}
+
+foreach ($Candidate in $Candidates) {
+    $Command = $Candidate.Command
+    $Arguments = $Candidate.Arguments
+    $PreviousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $VersionOutput = & $Command.Source @Arguments -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>&1
+        $ExitCode = $LASTEXITCODE
+    }
+    catch {
+        $ExitCode = 1
+    }
+    finally {
+        $ErrorActionPreference = $PreviousErrorActionPreference
+    }
+
+    if ($ExitCode -eq 0 -and "$VersionOutput" -match "^3\.(11|12|13|14)$") {
+        $PythonCommand = $Command
+        $PythonArguments = $Arguments
+        $SupportedVersion = "$VersionOutput"
+        break
     }
 }
 
 if (-not $PythonCommand) {
-    $PythonCommand = Get-Command python -ErrorAction SilentlyContinue
-    if ($PythonCommand) {
-        $DetectedVersion = & $PythonCommand.Source --version
-        if ($DetectedVersion -notmatch "^Python 3\.(11|12)\.") {
-            $PythonCommand = $null
-        }
-    }
+    throw "Python 3.11 through 3.14 is required. Install one from https://www.python.org/downloads/ and rerun this script."
 }
 
-if (-not $PythonCommand) {
-    throw "Python 3.11 or 3.12 is required. Install it from https://www.python.org/downloads/ and rerun this script."
-}
+Write-Host "Using Python $SupportedVersion"
 
 $VenvPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
 if (-not (Test-Path $VenvPython)) {
