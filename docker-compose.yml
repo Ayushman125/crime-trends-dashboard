@@ -1,0 +1,85 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: cpd_db
+      POSTGRES_USER: ${POSTGRES_USER:-crime_analyst}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - crime_pipeline
+
+  etl:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      SOCRATA_APP_TOKEN: ${SOCRATA_APP_TOKEN:-}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: cpd_db
+      DB_USER: ${POSTGRES_USER:-crime_analyst}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - crime_pipeline
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    init: true
+    command:
+      - python
+      - -m
+      - streamlit
+      - run
+      - dashboard.py
+      - --server.address=0.0.0.0
+      - --server.port=8501
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: cpd_db
+      DB_USER: ${POSTGRES_USER:-crime_analyst}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "${DASHBOARD_BIND_ADDRESS:-127.0.0.1}:8501:8501"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=5)"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - crime_pipeline
+
+volumes:
+  postgres_data:
+
+networks:
+  crime_pipeline:
+    driver: bridge

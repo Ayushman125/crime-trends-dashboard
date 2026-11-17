@@ -1,0 +1,116 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Scheduled ETL for Cambridge Police Daily Log to a private S3 snapshot.
+
+Resources:
+  CrimeDataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "crime-trends-${AWS::AccountId}-${AWS::Region}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  CrimeETLRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: WriteCuratedSnapshotAndLogs
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub "${CrimeDataBucket.Arn}/curated/*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${AWS::StackName}-crime-etl:*"
+
+  CrimeETLFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-crime-etl"
+      CodeUri: src/
+      Handler: aws_lambda.lambda_handler
+      Runtime: python3.12
+      Role: !GetAtt CrimeETLRole.Arn
+      Timeout: 900
+      MemorySize: 512
+      Environment:
+        Variables:
+          DATA_BUCKET: !Ref CrimeDataBucket
+          DATA_KEY: curated/cpd_incidents.jsonl
+
+  DailyScheduleRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                aws:SourceArn: !Sub "arn:${AWS::Partition}:scheduler:${AWS::Region}:${AWS::AccountId}:schedule/default/${AWS::StackName}-etl-every-six-hours"
+      Policies:
+        - PolicyName: InvokeCrimeETL
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !GetAtt CrimeETLFunction.Arn
+
+  ScheduledETL:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: !Sub "${AWS::StackName}-etl-every-six-hours"
+      Description: Refresh the Cambridge police log snapshot every six hours.
+      State: ENABLED
+      ScheduleExpression: "cron(0 0/6 * * ? *)"
+      ScheduleExpressionTimezone: America/New_York
+      FlexibleTimeWindow:
+        Mode: "OFF"
+      Target:
+        Arn: !GetAtt CrimeETLFunction.Arn
+        RoleArn: !GetAtt DailyScheduleRole.Arn
+        Input: "{}"
+        RetryPolicy:
+          MaximumEventAgeInSeconds: 21600
+          MaximumRetryAttempts: 2
+
+Outputs:
+  DataBucket:
+    Description: Private S3 bucket containing dashboard-ready incident data.
+    Value: !Ref CrimeDataBucket
+  ETLFunction:
+    Description: Lambda function name for manual runs and monitoring.
+    Value: !Ref CrimeETLFunction
+  DashboardDataLocation:
+    Description: S3 location for the current dashboard snapshot.
+    Value: !Sub "s3://${CrimeDataBucket}/curated/"
