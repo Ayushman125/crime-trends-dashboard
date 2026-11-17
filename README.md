@@ -133,6 +133,7 @@ containerized PostgreSQL pipeline.
 ## Test the code locally
 
 ```powershell
+$env:PYTHONPATH = "src"
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
