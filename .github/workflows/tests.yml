@@ -22,3 +22,19 @@ jobs:
         env:
           PYTHONPATH: src
         run: python -m unittest discover -s tests -v
+
+  windows-launcher:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Create virtual environment with the Windows launcher
+        shell: powershell
+        run: .\run-local.ps1 -SetupOnly
+      - name: Run unit tests in the virtual environment
+        shell: powershell
+        run: |
+          $env:PYTHONPATH = "src"
+          .\.venv\Scripts\python.exe -m unittest discover -s tests -v

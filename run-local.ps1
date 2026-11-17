@@ -1,10 +1,14 @@
+param(
+    [switch]$SetupOnly
+)
+
 $ErrorActionPreference = "Stop"
 
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ProjectRoot
 
 $PythonCommand = $null
-$PythonArguments = @()
+$PythonExecutable = $null
 $SupportedVersion = $null
 $Candidates = @()
 
@@ -26,7 +30,7 @@ foreach ($Candidate in $Candidates) {
     $PreviousErrorActionPreference = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     try {
-        $VersionOutput = & $Command.Source @Arguments -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>&1
+        $ProbeOutput = & $Command.Source @Arguments -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}'); print(sys.executable)" 2>&1
         $ExitCode = $LASTEXITCODE
     }
     catch {
@@ -36,10 +40,16 @@ foreach ($Candidate in $Candidates) {
         $ErrorActionPreference = $PreviousErrorActionPreference
     }
 
-    if ($ExitCode -eq 0 -and "$VersionOutput" -match "^3\.(11|12|13|14)$") {
+    $ProbeLines = @($ProbeOutput | ForEach-Object { "$_".Trim() })
+    if (
+        $ExitCode -eq 0 -and
+        $ProbeLines.Count -ge 2 -and
+        $ProbeLines[0] -match "^3\.(11|12|13|14)$" -and
+        (Test-Path $ProbeLines[1])
+    ) {
         $PythonCommand = $Command
-        $PythonArguments = $Arguments
-        $SupportedVersion = "$VersionOutput"
+        $PythonExecutable = $ProbeLines[1]
+        $SupportedVersion = $ProbeLines[0]
         break
     }
 }
@@ -52,15 +62,23 @@ Write-Host "Using Python $SupportedVersion"
 
 $VenvPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
 if (-not (Test-Path $VenvPython)) {
-    & $PythonCommand.Source @PythonArguments -m venv (Join-Path $ProjectRoot ".venv")
+    & $PythonExecutable -m venv (Join-Path $ProjectRoot ".venv")
     if ($LASTEXITCODE -ne 0) {
         throw "Could not create the virtual environment."
     }
 }
 
+if (-not (Test-Path $VenvPython)) {
+    throw "Python $SupportedVersion did not create the expected virtual-environment interpreter at $VenvPython."
+}
+
 & $VenvPython -m pip install --disable-pip-version-check -r (Join-Path $ProjectRoot "requirements.txt")
 if ($LASTEXITCODE -ne 0) {
     throw "Dependency installation failed. Check your internet connection and try again."
+}
+
+if ($SetupOnly) {
+    return
 }
 
 & $VenvPython -m streamlit run (Join-Path $ProjectRoot "dashboard.py")
