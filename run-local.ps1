@@ -60,17 +60,38 @@ if (-not $PythonCommand) {
 
 Write-Host "Using Python $SupportedVersion"
 
-$VenvPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
-if (-not (Test-Path $VenvPython)) {
-    & $PythonExecutable -m venv (Join-Path $ProjectRoot ".venv")
+function Get-VenvPython {
+    $ScriptsDirectory = Join-Path $ProjectRoot ".venv\Scripts"
+    $DefaultInterpreter = Join-Path $ScriptsDirectory "python.exe"
+    if (Test-Path $DefaultInterpreter) {
+        return $DefaultInterpreter
+    }
+
+    $VersionedInterpreter = Get-ChildItem -Path $ScriptsDirectory -Filter "python*.exe" -File -ErrorAction SilentlyContinue |
+        Sort-Object Name |
+        Select-Object -First 1
+    if ($VersionedInterpreter) {
+        return $VersionedInterpreter.FullName
+    }
+
+    return $null
+}
+
+$VenvPython = Get-VenvPython
+if (-not $VenvPython) {
+    & $PythonExecutable -m venv --copies (Join-Path $ProjectRoot ".venv")
     if ($LASTEXITCODE -ne 0) {
         throw "Could not create the virtual environment."
     }
+    $VenvPython = Get-VenvPython
 }
 
-if (-not (Test-Path $VenvPython)) {
-    throw "Python $SupportedVersion did not create the expected virtual-environment interpreter at $VenvPython."
+if (-not $VenvPython) {
+    $CreatedFiles = @(Get-ChildItem -Path (Join-Path $ProjectRoot ".venv\Scripts") -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
+    throw "Python $SupportedVersion did not create a recognizable interpreter in .venv\Scripts. Files found: $($CreatedFiles -join ', ')."
 }
+
+Write-Host "Using virtual environment interpreter: $VenvPython"
 
 & $VenvPython -m pip install --disable-pip-version-check -r (Join-Path $ProjectRoot "requirements.txt")
 if ($LASTEXITCODE -ne 0) {
